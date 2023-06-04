@@ -3,9 +3,31 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 pub struct RPCResponse {
     pub id: u32,
-    pub result: String,
+    pub result: RPCResult,
     pub jsonrpc: String,
 }
+
+#[derive(Debug)]
+pub enum RPCResult {
+    String(String),
+    TokenBalancesResult(TokenBalancesResult),
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TokenBalancesResult {
+    pub address: String,
+    #[serde(rename = "tokenBalances")]
+    pub token_balances: Vec<TokenBalance>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TokenBalance {
+    #[serde(rename = "contractAddress")]
+    pub contract_address: String,
+    #[serde(rename = "tokenBalance")]
+    pub token_balance: String,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct EthSubscriptionResponse {
     pub jsonrpc: String,

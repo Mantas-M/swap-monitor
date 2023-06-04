@@ -2,11 +2,13 @@ use crate::evm::messages::{EthSubscriptionResponse, MessageResponse, RPCResponse
 use futures::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use std::env;
+use tokio::sync::mpsc::{self, Receiver};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
 
-pub async fn subscribe_to_logs() -> Result<(), Box<dyn std::error::Error>> {
+pub async fn subscribe_to_logs(
+) -> Result<Receiver<EthSubscriptionResponse>, Box<dyn std::error::Error>> {
     let mut ws_stream = match connect_ws().await {
         Ok(ws_stream) => ws_stream,
         Err(e) => {
@@ -25,26 +27,32 @@ pub async fn subscribe_to_logs() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    while let Some(msg) = ws_stream.next().await {
-        match msg {
-            Ok(message) => match process_message(&message.to_string()).await {
-                Ok(MessageResponse::RPC(rpc_response)) => {
-                    println!("RPC Response: {:?}", rpc_response);
+    let (tx, rx) = mpsc::channel::<EthSubscriptionResponse>(100);
+
+    tokio::spawn(async move {
+        while let Some(message) = ws_stream.next().await {
+            match message {
+                Ok(message) => match process_message(&message.to_string()).await {
+                    Ok(MessageResponse::RPC(rpc_response)) => {
+                        println!("Received RPC response: {:?}", rpc_response);
+                    }
+                    Ok(MessageResponse::EthSubscription(sub_response)) => {
+                        if let Err(_) = tx.send(sub_response).await {
+                            break;
+                        }
+                    }
+                    Err(_) => {
+                        println!("Error - Failed to process message");
+                    }
+                },
+                Err(e) => {
+                    println!("Error - Failed to receive message: {}", e);
                 }
-                Ok(MessageResponse::EthSubscription(eth_subscription_response)) => {
-                    println!("Eth Subscription Response: {:?}", eth_subscription_response);
-                }
-                Err(_) => {
-                    println!("Error - Failed to process message");
-                }
-            },
-            Err(e) => {
-                println!("Error - Failed to receive message: {}", e);
             }
         }
-    }
+    });
 
-    Ok(())
+    Ok(rx)
 }
 
 pub fn generate_request() -> Value {
@@ -70,7 +78,6 @@ pub async fn process_message(json: &str) -> Result<MessageResponse, ()> {
         let initial_message: RPCResponse =
             serde_json::from_value(json_value).expect("Failed to deserialize InitialMessage");
 
-        println!("Received initial response: {:?}", initial_message);
         Ok(MessageResponse::RPC(initial_message))
     } else if let Some(_) = json_value.get("method").and_then(Value::as_str) {
         let eth_subscription: EthSubscriptionResponse =
