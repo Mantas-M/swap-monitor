@@ -1,4 +1,4 @@
-use crate::evm::messages::{EthSubscriptionResponse, MessageResponse, RPCResponse};
+use crate::swap_monitor::messages::{EthSubscriptionResponse, MessageResponse, RPCResponse};
 use futures::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use std::env;
@@ -31,8 +31,8 @@ pub async fn subscribe_to_logs(
         while let Some(message) = ws_stream.next().await {
             match message {
                 Ok(message) => match process_message(&message.to_string()).await {
-                    Ok(MessageResponse::RPC(rpc_response)) => {
-                        println!("Subscription confirmed {:?}", rpc_response);
+                    Ok(MessageResponse::RPC(_rpc_response)) => {
+                        println!("Subscription confirmed",);
                     }
                     Ok(MessageResponse::EthSubscription(sub_response)) => {
                         if let Err(_) = tx.send(sub_response).await {

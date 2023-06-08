@@ -1,8 +1,9 @@
-use crate::evm::rpc_api::{get_pair_token_addresses, get_token_info};
+use crate::swap_monitor::rpc_api::{get_pair_token_addresses, get_token_info};
 use dotenv::Error;
 use num_bigint::BigUint;
 use reqwest::Client;
 
+#[derive(Debug)]
 pub struct TokenPair {
     pub address: String,
     pub token_0: Token,
@@ -28,20 +29,6 @@ pub async fn process_new_token_pair(client: &Client, address: &str) -> Result<To
 
     let token_0_info: Token = get_token_info(client, &token_0_address).await;
     let token_1_info: Token = get_token_info(client, &token_1_address).await;
-
-    println!("Token 0: ");
-    println!("Name: {}", token_0_info.name);
-    println!("Symbol: {}", token_0_info.symbol);
-    println!("Decimals: {}", token_0_info.decimals);
-    println!("Total supply: {}", token_0_info.total_supply);
-    println!("Address: {}", token_0_info.address);
-
-    println!("Token 1:");
-    println!("Name: {}", token_1_info.name);
-    println!("Symbol: {}", token_1_info.symbol);
-    println!("Decimals: {}", token_1_info.decimals);
-    println!("Total supply: {}", token_1_info.total_supply);
-    println!("Address: {}", token_1_info.address);
 
     Ok(TokenPair {
         address: address.to_string(),

@@ -1,5 +1,5 @@
-use crate::evm::messages::{RPCResponse, RPCResult, TokenBalancesResult};
-use crate::evm::utils::{
+use crate::swap_monitor::messages::{RPCResponse, RPCResult, TokenBalancesResult};
+use crate::swap_monitor::utils::{
     generate_function_signature, hex_to_bigint, hex_to_decimal, hex_to_utf8, unpad,
 };
 use reqwest::{Client, Error, Response};
@@ -67,8 +67,6 @@ pub async fn read_contract(
     let function_signature: String = generate_function_signature(format!("{}()", &property));
     let body = generate_rpc_body(&contract_address, &function_signature, "eth_call");
 
-    println!("Body: {}", body);
-
     let response: Response = client.post(url).body(body.to_string()).send().await?;
 
     let result = if let Ok(RPCResult::String(address)) = handle_response(response).await {
@@ -81,8 +79,6 @@ pub async fn read_contract(
 }
 
 pub async fn get_token_info(client: &Client, address: &str) -> Token {
-    println!("Address: {:?}", address);
-
     if address.to_lowercase() == "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2" {
         let total_supply_hex: String = read_contract(client, address, "totalSupply")
             .await
@@ -123,28 +119,6 @@ pub async fn get_token_info(client: &Client, address: &str) -> Token {
             panic!("Error - Failed to get token total supply: {}", e);
         });
 
-    // println!("Name hex: {}", name_hex);
-    // println!("Unpadded name hex: {}", unpad(&name_hex));
-    // println!("Decoded name: {}", hex_to_utf8(&unpad(&name_hex)));
-
-    // println!("Symbol hex: {}", symbol_hex);
-    // println!("Unpadded symbol hex: {}", unpad(&symbol_hex));
-    // println!("Decoded symbol: {}", hex_to_utf8(&unpad(&symbol_hex)));
-
-    // println!("Decimals hex: {}", decimals_hex);
-    // println!("Unpadded decimals hex: {}", unpad(&decimals_hex));
-    // println!(
-    //     "Decoded decimals: {}",
-    //     hex_to_decimal(&unpad(&decimals_hex))
-    // );
-
-    // println!("Total supply hex: {}", total_supply_hex);
-    // println!("Unpadded total supply hex: {}", unpad(&total_supply_hex));
-    // println!(
-    //     "Decoded total supply: {}",
-    //     hex_to_bigint(&unpad(&total_supply_hex))
-    // );
-
     Token {
         address: address.to_string(),
         name: hex_to_utf8(&unpad(&name_hex)),
@@ -170,9 +144,6 @@ pub async fn get_pair_token_addresses(
             panic!("Error - Failed to get token 1 address: {}", e);
         });
 
-    println!("Token 0 address: {:?}", unpad(&token_0_address));
-    println!("Token 1 address: {:?}", unpad(&token_1_address));
-
     Ok((unpad(&token_0_address), unpad(&token_1_address)))
 }
 
@@ -195,8 +166,6 @@ pub fn generate_rpc_body(address: &str, function_signature: &str, rpc_method: &s
 async fn handle_response(response: Response) -> Result<RPCResult, Error> {
     if response.status().is_success() {
         let body: String = response.text().await?;
-
-        println!("Response: {}", body);
 
         let rpc_data: RPCResponse = match serde_json::from_str(&body) {
             Ok(rpc_data) => rpc_data,

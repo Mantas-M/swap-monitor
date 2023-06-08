@@ -1,9 +1,11 @@
-mod evm;
+mod swap_monitor;
+use crossterm::{cursor, execute, terminal};
 use dotenv::dotenv;
-use evm::rpc_api::{get_block_number, get_pair_token_addresses, get_token_balances};
-use evm::token_pair::{process_new_token_pair, TokenPair};
-use evm::ws_api::subscribe_to_logs;
 use reqwest::Client;
+use std::io::stdout;
+use swap_monitor::table::generate_table;
+use swap_monitor::token_pair::{process_new_token_pair, TokenPair};
+use swap_monitor::ws_api::subscribe_to_logs;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -15,16 +17,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .expect("Failed to subscribe to logs");
 
+    let mut counter = 0;
+
     while let Some(message) = rx.recv().await {
-        println!("Received message: {:?}", message.params.result.address);
+        counter += 1;
+        println!("counter: {}", counter);
 
-        let token_pair = process_new_token_pair(&client, &message.params.result.address)
-            .await
-            .unwrap_or_else(|e| {
-                panic!("Error - Failed to process new token pair: {}", e);
-            });
+        let pair_address = message.params.result.address;
 
-        token_pairs.push(token_pair);
+        match token_pairs
+            .iter_mut()
+            .find(|pair| pair.address == pair_address)
+        {
+            Some(pair) => {
+                pair.num_updates += 1;
+                println!("Found a pair with address {}: {:?}", pair_address, pair);
+            }
+            None => {
+                let token_pair = process_new_token_pair(&client, &pair_address)
+                    .await
+                    .unwrap_or_else(|e| {
+                        panic!("Error - Failed to process new token pair: {}", e);
+                    });
+
+                token_pairs.push(token_pair);
+            }
+        }
+
+        execute!(
+            stdout(),
+            terminal::Clear(terminal::ClearType::All),
+            cursor::MoveTo(0, 0)
+        )?;
+
+        token_pairs.sort_by(|a, b| b.num_updates.cmp(&a.num_updates));
+        let table = generate_table(&token_pairs);
+
+        println!("{}", table);
     }
 
     Ok(())
