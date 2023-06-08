@@ -18,12 +18,10 @@ pub async fn subscribe_to_logs(
 
     let request = generate_request();
 
-    println!("Request: {}", request.to_string());
-
     match ws_stream.send(Message::Text(request.to_string())).await {
         Ok(_) => println!("Sent subscription request"),
         Err(e) => {
-            panic!("Error - Failed to send subscription request: {}", e)
+            panic!("Error - Failed to send subscription request: {}", e);
         }
     }
 
@@ -34,7 +32,7 @@ pub async fn subscribe_to_logs(
             match message {
                 Ok(message) => match process_message(&message.to_string()).await {
                     Ok(MessageResponse::RPC(rpc_response)) => {
-                        println!("Received RPC response: {:?}", rpc_response);
+                        println!("Subscription confirmed {:?}", rpc_response);
                     }
                     Ok(MessageResponse::EthSubscription(sub_response)) => {
                         if let Err(_) = tx.send(sub_response).await {
@@ -101,7 +99,7 @@ pub async fn connect_ws() -> Result<
         }
     };
 
-    println!("Connecting to {}...", link);
+    println!("Connecting to provider...",);
     let (ws_stream, _) = match connect_async(link).await {
         Ok(result) => result,
         Err(e) => {

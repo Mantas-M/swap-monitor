@@ -1,22 +1,15 @@
 mod evm;
 use dotenv::dotenv;
 use evm::rpc_api::{get_block_number, get_pair_token_addresses, get_token_balances};
+use evm::token_pair::{process_new_token_pair, TokenPair};
 use evm::ws_api::subscribe_to_logs;
 use reqwest::Client;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
-    let client = Client::new();
-
-    let block_number = match get_block_number(&client).await {
-        Ok(block_number) => block_number,
-        Err(e) => {
-            panic!("Error - Websocket link not found: {}", e);
-        }
-    };
-
-    println!("Block number: {}\n", block_number);
+    let client: Client = Client::new();
+    let mut token_pairs: Vec<TokenPair> = Vec::new();
 
     let mut rx = subscribe_to_logs()
         .await
@@ -25,9 +18,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     while let Some(message) = rx.recv().await {
         println!("Received message: {:?}", message.params.result.address);
 
-        // get_token_balances(&client, message.params.result.address).await?;
+        let token_pair = process_new_token_pair(&client, &message.params.result.address)
+            .await
+            .unwrap_or_else(|e| {
+                panic!("Error - Failed to process new token pair: {}", e);
+            });
 
-        get_pair_token_addresses(&client, &message.params.result.address).await?;
+        token_pairs.push(token_pair);
     }
 
     Ok(())

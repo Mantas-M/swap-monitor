@@ -1,17 +1,13 @@
 use crate::evm::messages::{RPCResponse, RPCResult, TokenBalancesResult};
-use ethers::types::H256;
-use ethers::utils::keccak256;
+use crate::evm::utils::{
+    generate_function_signature, hex_to_bigint, hex_to_decimal, hex_to_utf8, unpad,
+};
 use reqwest::{Client, Error, Response};
 use serde::{Deserialize, Deserializer};
 use serde_json::{json, Value};
 use std::env;
 
-fn get_rpc_url() -> String {
-    match env::var("RPC_ETH_MAINNET") {
-        Ok(link) => link,
-        Err(e) => panic!("Error - Websocket link not found: {}", e),
-    }
-}
+use super::token_pair::Token;
 
 pub async fn get_block_number(client: &Client) -> Result<String, Error> {
     let url: String = get_rpc_url();
@@ -54,98 +50,146 @@ pub async fn get_token_balances(client: &Client, address: String) -> Result<(), 
             panic!("Error - Failed to handle response");
         }
         Err(e) => {
-            panic!("Error - Failed to handle response: {}", e)
+            panic!("Error - Failed to handle response: {}", e);
         }
-    };
+    }
 
     Ok(())
 }
 
-pub async fn get_pair_token_addresses(client: &Client, address: &String) -> Result<(), Error> {
+pub async fn read_contract(
+    client: &Client,
+    contract_address: &str,
+    property: &str,
+) -> Result<String, Error> {
     let url: String = get_rpc_url();
 
-    let token_0_method = "token0()";
-    let token_1_method = "token1()";
+    let function_signature: String = generate_function_signature(format!("{}()", &property));
+    let body = generate_rpc_body(&contract_address, &function_signature, "eth_call");
 
-    let token_0_hash = H256::from_slice(keccak256(token_0_method).as_slice());
-    let token_0_selector = &token_0_hash.as_bytes()[0..4];
-    let token_0_selector_string: String = token_0_selector
-        .iter()
-        .map(|byte| format!("{:02x}", byte))
-        .collect();
-    let token_0_data = format!("0x{}", token_0_selector_string);
+    println!("Body: {}", body);
 
-    let token_1_hash = H256::from_slice(keccak256(token_1_method).as_slice());
-    let token_1_selector = &token_1_hash.as_bytes()[0..4];
-    let token_1_selector_string: String = token_1_selector
-        .iter()
-        .map(|byte| format!("{:02x}", byte))
-        .collect();
-    let token_1_data = format!("0x{}", token_1_selector_string);
+    let response: Response = client.post(url).body(body.to_string()).send().await?;
 
-    let token_0_body = json!({
+    let result = if let Ok(RPCResult::String(address)) = handle_response(response).await {
+        address
+    } else {
+        panic!("Error - Unexpected result type");
+    };
+
+    Ok(result)
+}
+
+pub async fn get_token_info(client: &Client, address: &str) -> Token {
+    println!("Address: {:?}", address);
+
+    if address.to_lowercase() == "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2" {
+        let total_supply_hex: String = read_contract(client, address, "totalSupply")
+            .await
+            .unwrap_or_else(|e| {
+                panic!("Error - Failed to get token total supply: {}", e);
+            });
+
+        return Token {
+            name: "Wrapped Ether".to_string(),
+            symbol: "WETH".to_string(),
+            decimals: 18,
+            total_supply: hex_to_bigint(&unpad(&total_supply_hex)),
+            address: address.to_string(),
+        };
+    }
+
+    let name_hex: String = read_contract(client, address, "name")
+        .await
+        .unwrap_or_else(|e| {
+            panic!("Error - Failed to get token name: {}", e);
+        });
+
+    let symbol_hex: String = read_contract(client, address, "symbol")
+        .await
+        .unwrap_or_else(|e| {
+            panic!("Error - Failed to get token symbol: {}", e);
+        });
+
+    let decimals_hex: String = read_contract(client, address, "decimals")
+        .await
+        .unwrap_or_else(|e| {
+            panic!("Error - Failed to get token decimals: {}", e);
+        });
+
+    let total_supply_hex: String = read_contract(client, address, "totalSupply")
+        .await
+        .unwrap_or_else(|e| {
+            panic!("Error - Failed to get token total supply: {}", e);
+        });
+
+    // println!("Name hex: {}", name_hex);
+    // println!("Unpadded name hex: {}", unpad(&name_hex));
+    // println!("Decoded name: {}", hex_to_utf8(&unpad(&name_hex)));
+
+    // println!("Symbol hex: {}", symbol_hex);
+    // println!("Unpadded symbol hex: {}", unpad(&symbol_hex));
+    // println!("Decoded symbol: {}", hex_to_utf8(&unpad(&symbol_hex)));
+
+    // println!("Decimals hex: {}", decimals_hex);
+    // println!("Unpadded decimals hex: {}", unpad(&decimals_hex));
+    // println!(
+    //     "Decoded decimals: {}",
+    //     hex_to_decimal(&unpad(&decimals_hex))
+    // );
+
+    // println!("Total supply hex: {}", total_supply_hex);
+    // println!("Unpadded total supply hex: {}", unpad(&total_supply_hex));
+    // println!(
+    //     "Decoded total supply: {}",
+    //     hex_to_bigint(&unpad(&total_supply_hex))
+    // );
+
+    Token {
+        address: address.to_string(),
+        name: hex_to_utf8(&unpad(&name_hex)),
+        symbol: hex_to_utf8(&unpad(&symbol_hex)),
+        decimals: hex_to_decimal(&unpad(&decimals_hex)),
+        total_supply: hex_to_bigint(&unpad(&total_supply_hex)),
+    }
+}
+
+pub async fn get_pair_token_addresses(
+    client: &Client,
+    pair_address: &str,
+) -> Result<(String, String), Error> {
+    let token_0_address = read_contract(client, pair_address, "token0")
+        .await
+        .unwrap_or_else(|e| {
+            panic!("Error - Failed to get token 0 address: {}", e);
+        });
+
+    let token_1_address = read_contract(client, pair_address, "token1")
+        .await
+        .unwrap_or_else(|e| {
+            panic!("Error - Failed to get token 1 address: {}", e);
+        });
+
+    println!("Token 0 address: {:?}", unpad(&token_0_address));
+    println!("Token 1 address: {:?}", unpad(&token_1_address));
+
+    Ok((unpad(&token_0_address), unpad(&token_1_address)))
+}
+
+pub fn generate_rpc_body(address: &str, function_signature: &str, rpc_method: &str) -> String {
+    json!({
       "id": 1,
       "jsonrpc": "2.0",
-      "method": "eth_call",
+      "method": rpc_method,
       "params": [
         {
-          "to": address.to_string(),
-          "data": token_0_data
+          "to": address,
+          "data": function_signature
         },
         "latest"
       ]
-    });
-
-    let token_1_body = json!({
-      "id": 1,
-      "jsonrpc": "2.0",
-      "method": "eth_call",
-      "params": [
-        {
-          "to": address.to_string(),
-          "data": token_1_data
-        },
-        "latest"
-      ]
-    });
-
-    let token_0_response: Response = client
-        .post(&url)
-        .body(token_0_body.to_string())
-        .send()
-        .await?;
-
-    match handle_response(token_0_response).await {
-        Ok(RPCResult::String(address)) => {
-            println!("Address of token 0: {:?}\n", address);
-        }
-        Ok(_) => {
-            panic!("Error - Failed to handle response");
-        }
-        Err(e) => {
-            panic!("Error - Failed to handle response: {}", e)
-        }
-    };
-
-    let token_1_response: Response = client
-        .post(&url)
-        .body(token_1_body.to_string())
-        .send()
-        .await?;
-
-    match handle_response(token_1_response).await {
-        Ok(RPCResult::String(address)) => {
-            println!("Address of token 1: {:?}\n", address);
-        }
-        Ok(_) => {
-            panic!("Error - Failed to handle response");
-        }
-        Err(e) => {
-            panic!("Error - Failed to handle response: {}", e)
-        }
-    };
-
-    Ok(())
+    })
+    .to_string()
 }
 
 async fn handle_response(response: Response) -> Result<RPCResult, Error> {
@@ -188,5 +232,12 @@ impl<'de> Deserialize<'de> for RPCResult {
                 serde_json::from_value(value).map_err(serde::de::Error::custom)?,
             ))
         }
+    }
+}
+
+fn get_rpc_url() -> String {
+    match env::var("RPC_ETH_MAINNET") {
+        Ok(link) => link,
+        Err(e) => panic!("Error - Websocket link not found: {}", e),
     }
 }
